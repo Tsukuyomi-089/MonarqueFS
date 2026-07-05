@@ -27,9 +27,11 @@ fn copier_binaire(source_dir: &Path, nom: &str, destination: &Path) -> ResultatC
     Ok(())
 }
 
-// regle udev : acces aux peripheriques usb pour les utilisateurs locaux
-const REGLE_UDEV: &str = r#"# monarquefs : acces des utilisateurs aux disques usb amovibles
-KERNEL=="sd[a-z]", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", MODE="0660", TAG+="uaccess"
+// regle udev : acces aux supports amovibles pour l'utilisateur de la session
+// le tag uaccess confie les droits a l'utilisateur connecte (systemd-logind)
+const REGLE_UDEV: &str = r#"# monarquefs : acces des utilisateurs aux supports amovibles
+KERNEL=="sd[a-z]*", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", MODE="0660", TAG+="uaccess"
+KERNEL=="mmcblk[0-9]*", SUBSYSTEM=="block", ATTR{removable}=="1", MODE="0660", TAG+="uaccess"
 "#;
 
 pub fn installer() -> ResultatCli {
@@ -102,6 +104,18 @@ pub fn installer_udev() -> ResultatCli {
     let chemin_regle = Path::new("/etc/udev/rules.d/70-monarquefs.rules");
     std::fs::write(chemin_regle, REGLE_UDEV)?;
     println!("regle udev installee : {}", chemin_regle.display());
-    println!("rechargement : udevadm control --reload-rules (ou rebrancher la cle)");
+    // application immediate aux peripheriques deja branches
+    let rechargement = std::process::Command::new("udevadm")
+        .args(["control", "--reload-rules"])
+        .status();
+    let application = std::process::Command::new("udevadm")
+        .args(["trigger", "--subsystem-match=block"])
+        .status();
+    match (rechargement, application) {
+        (Ok(a), Ok(b)) if a.success() && b.success() => {
+            println!("regles appliquees : les cles deja branchees sont accessibles");
+        }
+        _ => println!("rechargement manuel : udevadm control --reload-rules ; udevadm trigger"),
+    }
     Ok(())
 }
