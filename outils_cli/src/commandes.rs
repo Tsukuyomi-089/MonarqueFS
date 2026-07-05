@@ -226,6 +226,22 @@ pub fn executer(commande: &str, arguments: &[String]) -> ResultatCli {
             }
             session.fermer()?;
         }
+        "mettre_a_jour" => {
+            use gestionnaire_fichiers::mise_a_jour::{mettre_a_jour, EtapeMaj};
+            let (emetteur, recepteur) = std::sync::mpsc::channel();
+            let fil = std::thread::spawn(move || mettre_a_jour(emetteur));
+            // affichage de la progression en direct
+            for etape in recepteur {
+                match etape {
+                    EtapeMaj::Info(texte) => println!("{texte}"),
+                    EtapeMaj::Terminee(Ok(_)) => {
+                        println!("mise a jour terminee — relancer les outils pour en profiter")
+                    }
+                    EtapeMaj::Terminee(Err(e)) => return Err(e.into()),
+                }
+            }
+            fil.join().ok();
+        }
         inconnue => return Err(format!("commande inconnue : {inconnue}").into()),
     }
     Ok(())

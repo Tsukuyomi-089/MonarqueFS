@@ -1,6 +1,7 @@
 // api de haut niveau pour la gestion du disque et des fichiers
 
 pub mod administration;
+pub mod mise_a_jour;
 pub mod session;
 pub mod surveillance;
 

@@ -2,6 +2,7 @@
 
 use crate::theme;
 use eframe::egui;
+use gestionnaire_fichiers::mise_a_jour::{self, EtapeMaj};
 use gestionnaire_fichiers::{
     lister_peripheriques, preparer_support, InfoEntree, InfoPeripherique, Session, TypeNoeud,
 };
@@ -21,6 +22,7 @@ enum Ecran {
     Deverrouillage,
     Formatage,
     Explorateur,
+    Parametres,
 }
 
 // support cible : peripherique reel ou image disque
@@ -52,6 +54,9 @@ pub struct ApplicationMonarque {
     index_image: String,
     // formatage en arriere plan
     formatage: Option<mpsc::Receiver<Result<(), String>>>,
+    // mise a jour en arriere plan
+    maj: Option<mpsc::Receiver<EtapeMaj>>,
+    journal_maj: Vec<String>,
     // etat de l'explorateur
     chemin_courant: String,
     entrees: Vec<InfoEntree>,
@@ -88,6 +93,8 @@ impl ApplicationMonarque {
             chemin_image: String::new(),
             index_image: "0".to_string(),
             formatage: None,
+            maj: None,
+            journal_maj: Vec::new(),
             chemin_courant: "/".to_string(),
             entrees: Vec::new(),
             selection: None,
@@ -375,6 +382,16 @@ impl ApplicationMonarque {
         self.analyser_peripheriques();
         ui.ctx().request_repaint_after(Duration::from_millis(500));
         self.appliquer_transition(ui);
+        // acces aux parametres en haut a droite
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            if ui
+                .button(egui::RichText::new("⚙").size(18.0))
+                .on_hover_text("paramètres et mise à jour")
+                .clicked()
+            {
+                self.changer_ecran(Ecran::Parametres);
+            }
+        });
         self.entete(ui);
 
         ui.vertical_centered(|ui| {
@@ -679,6 +696,133 @@ impl ApplicationMonarque {
                 }
                 self.barre_message(ui);
             });
+        });
+    }
+
+    fn ecran_parametres(&mut self, ui: &mut egui::Ui) {
+        self.appliquer_transition(ui);
+
+        // reception de la progression de mise a jour
+        if let Some(recepteur) = &self.maj {
+            loop {
+                match recepteur.try_recv() {
+                    Ok(EtapeMaj::Info(texte)) => self.journal_maj.push(texte),
+                    Ok(EtapeMaj::Terminee(Ok(chemin_gui))) => {
+                        self.journal_maj.push("redémarrage de l'application…".into());
+                        mise_a_jour::relancer(&chemin_gui);
+                    }
+                    Ok(EtapeMaj::Terminee(Err(e))) => {
+                        self.maj = None;
+                        self.journal_maj.push(format!("✖ {e}"));
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.maj = None;
+                        break;
+                    }
+                }
+            }
+            ui.ctx().request_repaint_after(Duration::from_millis(150));
+        }
+
+        ui.add_space(24.0);
+        ui.vertical_centered(|ui| {
+            ui.set_max_width(540.0);
+            ui.label(egui::RichText::new("⚙").size(38.0));
+            ui.label(egui::RichText::new("Paramètres").size(24.0).strong());
+            ui.add_space(10.0);
+
+            theme::carte().show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("APPLICATION")
+                        .color(theme::TEXTE_FAIBLE)
+                        .small()
+                        .strong(),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("version installée :");
+                    ui.label(
+                        egui::RichText::new(mise_a_jour::VERSION)
+                            .color(theme::OR)
+                            .strong(),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("dépôt officiel :");
+                    ui.hyperlink(mise_a_jour::DEPOT);
+                });
+            });
+
+            theme::carte().show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("MISE À JOUR")
+                        .color(theme::TEXTE_FAIBLE)
+                        .small()
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "télécharge la dernière version du dépôt, la recompile, \
+                         l'installe et relance l'application automatiquement",
+                    )
+                    .color(theme::TEXTE_FAIBLE)
+                    .small(),
+                );
+                ui.add_space(6.0);
+
+                let en_cours = self.maj.is_some();
+                ui.horizontal(|ui| {
+                    let bouton =
+                        egui::Button::new(egui::RichText::new("🔄 Mettre à jour").strong())
+                            .fill(theme::ACCENT);
+                    if ui.add_enabled(!en_cours, bouton).clicked() {
+                        self.journal_maj.clear();
+                        self.journal_maj.push("démarrage de la mise à jour…".into());
+                        let (emetteur, recepteur) = mpsc::channel();
+                        std::thread::spawn(move || mise_a_jour::mettre_a_jour(emetteur));
+                        self.maj = Some(recepteur);
+                    }
+                    if en_cours {
+                        ui.add(egui::Spinner::new().size(20.0).color(theme::ACCENT));
+                    }
+                });
+
+                // journal de progression
+                if !self.journal_maj.is_empty() {
+                    ui.add_space(6.0);
+                    egui::Frame::new()
+                        .fill(theme::FOND)
+                        .corner_radius(8)
+                        .inner_margin(10)
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("journal_maj")
+                                .max_height(160.0)
+                                .stick_to_bottom(true)
+                                .show(ui, |ui| {
+                                    for ligne in &self.journal_maj {
+                                        let couleur = if ligne.starts_with('✖') {
+                                            theme::DANGER
+                                        } else {
+                                            theme::TEXTE_FAIBLE
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(ligne)
+                                                .color(couleur)
+                                                .monospace()
+                                                .small(),
+                                        );
+                                    }
+                                });
+                        });
+                }
+            });
+
+            ui.add_space(6.0);
+            if ui.button("← Retour").clicked() {
+                self.changer_ecran(Ecran::Accueil);
+            }
         });
     }
 
@@ -1029,6 +1173,9 @@ impl eframe::App for ApplicationMonarque {
             }
             Ecran::Formatage => {
                 egui::CentralPanel::default().show(ui, |ui| self.ecran_formatage(ui));
+            }
+            Ecran::Parametres => {
+                egui::CentralPanel::default().show(ui, |ui| self.ecran_parametres(ui));
             }
             Ecran::Explorateur => self.ecran_explorateur(ui),
         }

@@ -41,7 +41,8 @@
       "fichiers": {
         "src/administration.rs": "creation disque, partitionnement, formatage, ouverture de partition",
         "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer",
-        "src/surveillance.rs": "detection des peripheriques bloc via /sys/block et signature MONARQUE"
+        "src/surveillance.rs": "detection des peripheriques bloc via /sys/block et signature MONARQUE",
+        "src/mise_a_jour.rs": "mise a jour automatique : git pull du depot officiel, recompilation cargo, installation et relance"
       },
       "dependances": [
         "noyau_partition",
@@ -54,7 +55,7 @@
       "role": "outils bas niveau + demon de veille + installation systeme",
       "fichiers": {
         "src/main.rs": "analyse des arguments et aide",
-        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier",
+        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier, mise a jour en direct",
         "src/veille.rs": "demon monarque_veille : detection continue, lancement du gestionnaire graphique",
         "src/installation.rs": "installation xdg : binaires, autostart, menu, regle udev"
       },
@@ -72,7 +73,7 @@
       "role": "gestionnaire de fichiers graphique moderne et anime, ouvert automatiquement par le demon",
       "fichiers": {
         "src/main.rs": "point d'entree eframe",
-        "src/application.rs": "ecrans accueil (detection en direct), deverrouillage, formatage (fil d'arriere plan), explorateur",
+        "src/application.rs": "ecrans accueil (detection en direct), deverrouillage, formatage, parametres (mise a jour integree), explorateur",
         "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies"
       },
       "dependances": [
@@ -161,6 +162,16 @@
         "lancement de monarque_gui /dev/sdX",
         "ecran de deverrouillage : saisie de la phrase secrete",
         "montage du volume et exploration"
+      ]
+    },
+    {
+      "nom": "mise a jour de l'application",
+      "etapes": [
+        "bouton mettre a jour dans l'ecran parametres (ou : monarque mettre_a_jour)",
+        "git clone ou pull du depot https://github.com/Tsukuyomi-089/MonarqueFS dans ~/.local/share/monarquefs/source",
+        "cargo build --release --workspace",
+        "remplacement des binaires dans ~/.local/bin (suppression prealable, binaires en cours d'execution)",
+        "arret de l'ancien demon, relance de monarque_veille et monarque_gui"
       ]
     }
   ],

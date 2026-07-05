@@ -21,6 +21,7 @@ commandes disque :
 commandes systeme :
   installer                                  installe binaires, veille et menus
   installer_udev                             installe la regle udev (administrateur)
+  mettre_a_jour                              telecharge, recompile et installe la derniere version
 
 commandes volume :
   formater <image> <index>                   formate une partition en MonarqueFS
