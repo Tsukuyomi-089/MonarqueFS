@@ -13,6 +13,24 @@ pub struct DisqueLogique {
     taille_octets: u64,
 }
 
+// taille reelle du support, y compris peripherique bloc
+fn taille_support(chemin: &Path, fichier: &File) -> Resultat<u64> {
+    let taille = fichier.metadata()?.len();
+    if taille > 0 {
+        return Ok(taille);
+    }
+    // peripherique bloc : taille en secteurs via sysfs
+    if let Some(nom) = chemin.file_name().and_then(|n| n.to_str()) {
+        let chemin_sys = format!("/sys/class/block/{nom}/size");
+        if let Ok(texte) = std::fs::read_to_string(&chemin_sys) {
+            if let Ok(secteurs) = texte.trim().parse::<u64>() {
+                return Ok(secteurs * TAILLE_SECTEUR);
+            }
+        }
+    }
+    Ok(taille)
+}
+
 impl DisqueLogique {
     // creation d'un disque logique vierge
     pub fn creer(chemin: &Path, taille_octets: u64) -> Resultat<Self> {
@@ -33,10 +51,20 @@ impl DisqueLogique {
         })
     }
 
-    // ouverture d'un disque existant
+    // ouverture d'un disque existant, image ou peripherique bloc
     pub fn ouvrir(chemin: &Path) -> Resultat<Self> {
         let fichier = OpenOptions::new().read(true).write(true).open(chemin)?;
-        let taille_octets = fichier.metadata()?.len();
+        let taille_octets = taille_support(chemin, &fichier)?;
+        Ok(Self {
+            fichier,
+            taille_octets,
+        })
+    }
+
+    // ouverture en lecture seule pour l'inspection
+    pub fn ouvrir_lecture(chemin: &Path) -> Resultat<Self> {
+        let fichier = OpenOptions::new().read(true).open(chemin)?;
+        let taille_octets = taille_support(chemin, &fichier)?;
         Ok(Self {
             fichier,
             taille_octets,

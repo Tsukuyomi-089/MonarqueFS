@@ -7,5 +7,9 @@ edition.workspace = true
 name = "monarque"
 path = "src/main.rs"
 
+[[bin]]
+name = "monarque_veille"
+path = "src/veille.rs"
+
 [dependencies]
 gestionnaire_fichiers = { path = "../gestionnaire_fichiers" }

@@ -30,38 +30,55 @@
         "src/stockage.rs": "trait Stockage : partition ou memoire (tests)",
         "src/chiffrement/": "chacha20, poly1305, aead, sha256, pbkdf2, alea systeme, trait AlgorithmeChiffrement"
       },
-      "dependances": ["noyau_partition"],
+      "dependances": [
+        "noyau_partition"
+      ],
       "tests": "10 vecteurs rfc et unitaires + 10 tests d'integration (persistance, indirections, absence de clair)"
     },
     "gestionnaire_fichiers": {
       "type": "bibliotheque",
-      "role": "api de haut niveau pour cli et gui",
+      "role": "api de haut niveau pour cli et gui + surveillance des peripheriques",
       "fichiers": {
         "src/administration.rs": "creation disque, partitionnement, formatage, ouverture de partition",
-        "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer"
+        "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer",
+        "src/surveillance.rs": "detection des peripheriques bloc via /sys/block et signature MONARQUE"
       },
-      "dependances": ["noyau_partition", "systeme_fichiers"],
+      "dependances": [
+        "noyau_partition",
+        "systeme_fichiers"
+      ],
       "tests": "1 test de cycle complet disque -> partition -> volume -> fichier"
     },
     "outils_cli": {
       "type": "binaire",
-      "binaire": "monarque",
-      "role": "outils bas niveau : creation, partitionnement, formatage, inspection, fichiers, metadonnees",
+      "role": "outils bas niveau + demon de veille + installation systeme",
       "fichiers": {
         "src/main.rs": "analyse des arguments et aide",
-        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier"
+        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier",
+        "src/veille.rs": "demon monarque_veille : detection continue, lancement du gestionnaire graphique",
+        "src/installation.rs": "installation xdg : binaires, autostart, menu, regle udev"
       },
-      "dependances": ["gestionnaire_fichiers"]
+      "dependances": [
+        "gestionnaire_fichiers"
+      ],
+      "binaires": [
+        "monarque",
+        "monarque_veille"
+      ]
     },
     "interface_graphique": {
       "type": "binaire",
       "binaire": "monarque_gui",
-      "role": "gestionnaire de fichiers graphique : connexion, exploration, import, export, metadonnees",
+      "role": "gestionnaire de fichiers graphique moderne et anime, ouvert automatiquement par le demon",
       "fichiers": {
         "src/main.rs": "point d'entree eframe",
-        "src/application.rs": "ecrans connexion et explorateur, panneau d'actions"
+        "src/application.rs": "ecrans accueil (detection en direct), deverrouillage, formatage (fil d'arriere plan), explorateur",
+        "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies"
       },
-      "dependances": ["gestionnaire_fichiers", "eframe (non critique, gui seulement)"]
+      "dependances": [
+        "gestionnaire_fichiers",
+        "eframe (non critique, gui seulement)"
+      ]
     },
     "specification": {
       "type": "documentation",
@@ -69,16 +86,42 @@
         "architecture.md": "vue d'ensemble et regles",
         "table_partition.md": "format binaire de la table MONARQUE",
         "volume_monarque.md": "superbloc, inodes, dossiers, index",
-        "chiffrement.md": "algorithmes, cles, format des blocs"
+        "chiffrement.md": "algorithmes, cles, format des blocs",
+        "peripheriques.md": "detection, demon de veille, installation, regle udev"
       }
     }
   },
   "relations": [
-    { "de": "systeme_fichiers", "vers": "noyau_partition", "type": "utilise", "detail": "VuePartition implemente le trait Stockage" },
-    { "de": "gestionnaire_fichiers", "vers": "systeme_fichiers", "type": "utilise", "detail": "formater, monter, Volume" },
-    { "de": "gestionnaire_fichiers", "vers": "noyau_partition", "type": "utilise", "detail": "DisqueLogique, TablePartition" },
-    { "de": "outils_cli", "vers": "gestionnaire_fichiers", "type": "utilise", "detail": "administration + Session" },
-    { "de": "interface_graphique", "vers": "gestionnaire_fichiers", "type": "utilise", "detail": "administration + Session" }
+    {
+      "de": "systeme_fichiers",
+      "vers": "noyau_partition",
+      "type": "utilise",
+      "detail": "VuePartition implemente le trait Stockage"
+    },
+    {
+      "de": "gestionnaire_fichiers",
+      "vers": "systeme_fichiers",
+      "type": "utilise",
+      "detail": "formater, monter, Volume"
+    },
+    {
+      "de": "gestionnaire_fichiers",
+      "vers": "noyau_partition",
+      "type": "utilise",
+      "detail": "DisqueLogique, TablePartition"
+    },
+    {
+      "de": "outils_cli",
+      "vers": "gestionnaire_fichiers",
+      "type": "utilise",
+      "detail": "administration + Session"
+    },
+    {
+      "de": "interface_graphique",
+      "vers": "gestionnaire_fichiers",
+      "type": "utilise",
+      "detail": "administration + Session"
+    }
   ],
   "flux_donnees": [
     {
@@ -108,6 +151,16 @@
         "derivation pbkdf2 de la phrase, ouverture de l'enveloppe de cle",
         "echec d'authentification = phrase refusee",
         "chargement de la bitmap et construction de l'index des chemins"
+      ]
+    },
+    {
+      "nom": "branchement d'une cle usb monarque",
+      "etapes": [
+        "monarque_veille analyse /sys/block toutes les 2 secondes",
+        "lecture de la signature MONARQUE en tete de /dev/sdX",
+        "lancement de monarque_gui /dev/sdX",
+        "ecran de deverrouillage : saisie de la phrase secrete",
+        "montage du volume et exploration"
       ]
     }
   ],

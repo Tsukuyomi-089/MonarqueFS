@@ -75,3 +75,17 @@ pub fn formater_partition(chemin: &Path, index: usize, phrase: &str) -> Resultat
     vue.synchroniser()?;
     Ok(())
 }
+
+// preparation complete d'un peripherique ou d'une image existante :
+// table monarque, partition unique et volume chiffre proteges par phrase
+pub fn preparer_support(chemin: &Path, nom_volume: &str, phrase: &str) -> ResultatFs<()> {
+    let mut disque = DisqueLogique::ouvrir(chemin)?;
+    let mut table = TablePartition::initialiser(&mut disque)?;
+    // partition unique sur tout l'espace disponible
+    let nb_secteurs = disque
+        .nb_secteurs()
+        .saturating_sub(noyau_partition::table_partition::SECTEUR_DEBUT_DONNEES);
+    table.ajouter(&mut disque, nom_volume, nb_secteurs, TypePartition::MonarqueFs)?;
+    drop(disque);
+    formater_partition(chemin, 0, phrase)
+}

@@ -84,14 +84,43 @@ $monarque etat disque.img 1
 
 > Sans `MONARQUE_PHRASE`, la phrase secrète est demandée au clavier.
 
+### Installer sur le système (toutes distributions)
+
+```bash
+cargo build --release
+./target/release/monarque installer        # binaires, autostart, menu
+sudo ./target/release/monarque installer_udev   # accès usb sans droits admin
+```
+
+L'installation repose uniquement sur les normes XDG et sysfs — elle fonctionne
+sur toutes les distributions Linux et tous les environnements de bureau.
+
+### Détection automatique des clés USB 🔑
+
+Une fois installé, le démon `monarque_veille` surveille les périphériques :
+
+1. **branchez une clé formatée MonarqueFS** → le gestionnaire de fichiers
+   s'ouvre automatiquement sur l'écran de déverrouillage
+2. entrez votre phrase secrète → vos fichiers chiffrés apparaissent
+3. une clé non formatée peut être préparée depuis l'interface : choix du nom,
+   du mot de passe (avec jauge de solidité) et confirmation explicite avant
+   effacement
+
+```bash
+monarque peripheriques              # liste les périphériques détectés
+monarque preparer /dev/sdX ma_cle   # formatage complet en une commande
+```
+
 ### Explorer graphiquement
 
 ```bash
 cargo run --release -p interface_graphique
 ```
 
-Connexion à une image disque, navigation dans l'arborescence, import/export,
-renommage, suppression, aperçu des fichiers texte et édition des métadonnées.
+Interface moderne et animée : thème sombre aux accents violet et or,
+détection des périphériques en direct, transitions fluides, écran de
+déverrouillage, formatage en arrière-plan avec indicateur, fil d'Ariane,
+import/export, renommage, aperçu des fichiers et métadonnées.
 
 ---
 
@@ -103,6 +132,10 @@ renommage, suppression, aperçu des fichiers texte et édition des métadonnées
 | `partitionner <image> <nom> <taille_mo>` | ajoute une partition |
 | `supprimer_partition <image> <index>` | retire une partition |
 | `inspecter <image>` | affiche la table de partition |
+| `peripheriques` | liste les périphériques bloc détectés |
+| `preparer <support> <nom>` | table + partition + volume chiffré en une étape |
+| `installer` | installe binaires, démon de veille et menus |
+| `installer_udev` | installe la règle udev (administrateur) |
 | `formater <image> <index>` | formate en MonarqueFS |
 | `etat <image> <index>` | statistiques du volume |
 | `lister <image> <index> [chemin]` | liste un dossier |

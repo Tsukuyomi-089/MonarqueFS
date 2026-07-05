@@ -2,7 +2,7 @@
 
 use gestionnaire_fichiers::{
     ajouter_partition, creer_disque, formater_partition, lister_partitions,
-    supprimer_partition, Session, TypeNoeud,
+    lister_peripheriques, preparer_support, supprimer_partition, Session, TypeNoeud,
 };
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -95,6 +95,37 @@ pub fn executer(commande: &str, arguments: &[String]) -> ResultatCli {
                     taille_lisible(p.taille_octets)
                 );
             }
+        }
+        "peripheriques" => {
+            let peripheriques = lister_peripheriques();
+            if peripheriques.is_empty() {
+                println!("aucun peripherique detecte");
+            }
+            for p in peripheriques {
+                let etat = if !p.accessible {
+                    "acces refuse (voir : monarque installer_udev)"
+                } else if p.est_monarque {
+                    "MonarqueFS"
+                } else {
+                    "non formate monarque"
+                };
+                let amovible = if p.amovible { "amovible" } else { "interne" };
+                println!(
+                    "{:<12} {:<24} {:>10}  {:<8} {}",
+                    p.chemin.display(),
+                    p.modele,
+                    taille_lisible(p.taille_octets),
+                    amovible,
+                    etat
+                );
+            }
+        }
+        "preparer" => {
+            let support = argument(arguments, 0, "support")?;
+            let nom = argument(arguments, 1, "nom")?;
+            let phrase = obtenir_phrase()?;
+            preparer_support(Path::new(support), nom, &phrase)?;
+            println!("support prepare : {support} (volume \"{nom}\" chiffre)");
         }
         "formater" => {
             let image = argument(arguments, 0, "image")?;

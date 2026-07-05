@@ -1,6 +1,7 @@
 // outil en ligne de commande monarque
 
 mod commandes;
+mod installation;
 
 use std::process::ExitCode;
 
@@ -14,6 +15,12 @@ commandes disque :
   partitionner <image> <nom> <taille_mo>     ajoute une partition
   supprimer_partition <image> <index>        retire une partition
   inspecter <image>                          affiche la table de partition
+  peripheriques                              liste les peripheriques detectes
+  preparer <support> <nom>                   table + partition + volume en une etape
+
+commandes systeme :
+  installer                                  installe binaires, veille et menus
+  installer_udev                             installe la regle udev (administrateur)
 
 commandes volume :
   formater <image> <index>                   formate une partition en MonarqueFS
@@ -41,7 +48,12 @@ fn main() -> ExitCode {
         println!("{AIDE}");
         return ExitCode::SUCCESS;
     }
-    match commandes::executer(commande, &arguments[1..]) {
+    let resultat = match commande.as_str() {
+        "installer" => installation::installer(),
+        "installer_udev" => installation::installer_udev(),
+        _ => commandes::executer(commande, &arguments[1..]),
+    };
+    match resultat {
         Ok(()) => ExitCode::SUCCESS,
         Err(erreur) => {
             eprintln!("erreur : {erreur}");
