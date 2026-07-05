@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "noyau_partition",
+    "systeme_fichiers",
+    "gestionnaire_fichiers",
+    "outils_cli",
+    "interface_graphique",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+# profil optimise pour la vitesse
+[profile.release]
+lto = true
+codegen-units = 1

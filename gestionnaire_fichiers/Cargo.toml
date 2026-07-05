@@ -1,0 +1,8 @@
+[package]
+name = "gestionnaire_fichiers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+noyau_partition = { path = "../noyau_partition" }
+systeme_fichiers = { path = "../systeme_fichiers" }

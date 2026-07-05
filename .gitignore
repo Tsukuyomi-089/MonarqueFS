@@ -1,0 +1,17 @@
+# artefacts de compilation rust
+/target/
+
+# images disque de test
+*.img
+
+# fichiers de sauvegarde et temporaires
+*~
+*.swp
+*.bak
+
+# fichiers systeme
+.directory
+.DS_Store
+
+# instructions locales de l'assistant
+CLAUDE.md

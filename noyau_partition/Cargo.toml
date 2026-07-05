@@ -1,0 +1,6 @@
+[package]
+name = "noyau_partition"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

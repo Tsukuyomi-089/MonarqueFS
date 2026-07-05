@@ -1,0 +1,11 @@
+[package]
+name = "outils_cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "monarque"
+path = "src/main.rs"
+
+[dependencies]
+gestionnaire_fichiers = { path = "../gestionnaire_fichiers" }

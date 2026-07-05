@@ -1,0 +1,120 @@
+{
+  "projet": "MonarqueFS",
+  "version": "0.1.0",
+  "description": "systeme de stockage complet : table de partition proprietaire, systeme de fichiers chiffre par defaut, gestionnaire de fichiers graphique et outils cli",
+  "langage": "rust",
+  "derniere_mise_a_jour": "2026-07-05",
+  "modules": {
+    "noyau_partition": {
+      "type": "bibliotheque",
+      "role": "disque logique et table de partition proprietaire",
+      "fichiers": {
+        "src/disque.rs": "fichier image, lecture et ecriture par decalage, secteurs de 512 octets",
+        "src/table_partition.rs": "table MONARQUE : 32 entrees, allocation premier ajustement, vue bornee par partition",
+        "src/erreurs.rs": "erreurs du noyau"
+      },
+      "dependances": [],
+      "tests": "3 tests unitaires : cycle table, reutilisation d'espace, bornes de vue"
+    },
+    "systeme_fichiers": {
+      "type": "bibliotheque",
+      "role": "volume chiffre : blocs, inodes, dossiers, index rapide",
+      "fichiers": {
+        "src/superbloc.rs": "bloc 0 : geometrie, sel kdf, cle de volume enveloppee",
+        "src/bloc.rs": "blocs de 4096 octets, format disque nonce+chiffre+etiquette (4124)",
+        "src/bitmap.rs": "allocation des blocs de donnees, ecriture des blocs sales seulement",
+        "src/inode.rs": "inodes de 256 octets : 12 directs, indirect simple et double, metadonnees etendues",
+        "src/dossier.rs": "entrees de dossier de 64 octets",
+        "src/index.rs": "table de hachage chemin vers inode, resolution O(1)",
+        "src/volume.rs": "formatage, montage, operations fichiers et dossiers",
+        "src/stockage.rs": "trait Stockage : partition ou memoire (tests)",
+        "src/chiffrement/": "chacha20, poly1305, aead, sha256, pbkdf2, alea systeme, trait AlgorithmeChiffrement"
+      },
+      "dependances": ["noyau_partition"],
+      "tests": "10 vecteurs rfc et unitaires + 10 tests d'integration (persistance, indirections, absence de clair)"
+    },
+    "gestionnaire_fichiers": {
+      "type": "bibliotheque",
+      "role": "api de haut niveau pour cli et gui",
+      "fichiers": {
+        "src/administration.rs": "creation disque, partitionnement, formatage, ouverture de partition",
+        "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer"
+      },
+      "dependances": ["noyau_partition", "systeme_fichiers"],
+      "tests": "1 test de cycle complet disque -> partition -> volume -> fichier"
+    },
+    "outils_cli": {
+      "type": "binaire",
+      "binaire": "monarque",
+      "role": "outils bas niveau : creation, partitionnement, formatage, inspection, fichiers, metadonnees",
+      "fichiers": {
+        "src/main.rs": "analyse des arguments et aide",
+        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier"
+      },
+      "dependances": ["gestionnaire_fichiers"]
+    },
+    "interface_graphique": {
+      "type": "binaire",
+      "binaire": "monarque_gui",
+      "role": "gestionnaire de fichiers graphique : connexion, exploration, import, export, metadonnees",
+      "fichiers": {
+        "src/main.rs": "point d'entree eframe",
+        "src/application.rs": "ecrans connexion et explorateur, panneau d'actions"
+      },
+      "dependances": ["gestionnaire_fichiers", "eframe (non critique, gui seulement)"]
+    },
+    "specification": {
+      "type": "documentation",
+      "fichiers": {
+        "architecture.md": "vue d'ensemble et regles",
+        "table_partition.md": "format binaire de la table MONARQUE",
+        "volume_monarque.md": "superbloc, inodes, dossiers, index",
+        "chiffrement.md": "algorithmes, cles, format des blocs"
+      }
+    }
+  },
+  "relations": [
+    { "de": "systeme_fichiers", "vers": "noyau_partition", "type": "utilise", "detail": "VuePartition implemente le trait Stockage" },
+    { "de": "gestionnaire_fichiers", "vers": "systeme_fichiers", "type": "utilise", "detail": "formater, monter, Volume" },
+    { "de": "gestionnaire_fichiers", "vers": "noyau_partition", "type": "utilise", "detail": "DisqueLogique, TablePartition" },
+    { "de": "outils_cli", "vers": "gestionnaire_fichiers", "type": "utilise", "detail": "administration + Session" },
+    { "de": "interface_graphique", "vers": "gestionnaire_fichiers", "type": "utilise", "detail": "administration + Session" }
+  ],
+  "flux_donnees": [
+    {
+      "nom": "ecriture d'un fichier",
+      "etapes": [
+        "gui/cli -> Session.ecrire_fichier(chemin, donnees)",
+        "Volume : resolution du chemin par l'index rapide",
+        "allocation de blocs dans la bitmap",
+        "chiffrement immediat de chaque bloc (nonce frais, numero de bloc en donnee associee)",
+        "mise a jour de l'inode puis purge de la bitmap",
+        "ecriture par la VuePartition bornee sur le DisqueLogique"
+      ]
+    },
+    {
+      "nom": "lecture d'un fichier",
+      "etapes": [
+        "resolution O(1) du chemin",
+        "collecte des pointeurs (directs, indirects, doubles)",
+        "lecture des blocs et dechiffrement en memoire uniquement",
+        "verification poly1305 : toute alteration est rejetee"
+      ]
+    },
+    {
+      "nom": "montage d'un volume",
+      "etapes": [
+        "lecture du superbloc",
+        "derivation pbkdf2 de la phrase, ouverture de l'enveloppe de cle",
+        "echec d'authentification = phrase refusee",
+        "chargement de la bitmap et construction de l'index des chemins"
+      ]
+    }
+  ],
+  "invariants": [
+    "aucune donnee en clair sur le disque (verifie par test)",
+    "jamais de cle en clair sur le disque",
+    "dechiffrement en memoire uniquement",
+    "graphity.json mis a jour apres chaque tache"
+  ]
+}

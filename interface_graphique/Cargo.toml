@@ -1,0 +1,12 @@
+[package]
+name = "interface_graphique"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "monarque_gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.35.0"
+gestionnaire_fichiers = { path = "../gestionnaire_fichiers" }
