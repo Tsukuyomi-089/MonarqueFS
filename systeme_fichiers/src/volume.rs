@@ -14,14 +14,20 @@ use crate::index::IndexRapide;
 use crate::inode::{Inode, TypeNoeud, INODE_RACINE, NB_BLOCS_DIRECTS, TAILLE_INODE};
 use crate::stockage::Stockage;
 use crate::superbloc::{Superbloc, ITERATIONS_KDF, VERSION_VOLUME};
+use std::io::{Read, Write};
 
 // inodes par bloc
 const INODES_PAR_BLOC: u64 = (TAILLE_BLOC / TAILLE_INODE) as u64;
 // pointeurs par bloc d'indirection
 const POINTEURS_PAR_BLOC: u64 = (TAILLE_BLOC / 8) as u64;
-// capacite maximale d'un fichier en blocs
+// capacite de chaque zone d'indirection en blocs de donnees
+const CAP_INDIRECT: u64 = POINTEURS_PAR_BLOC;
+const CAP_DOUBLE: u64 = POINTEURS_PAR_BLOC * POINTEURS_PAR_BLOC;
+const CAP_TRIPLE: u64 = POINTEURS_PAR_BLOC * POINTEURS_PAR_BLOC * POINTEURS_PAR_BLOC;
+// capacite maximale d'un fichier en blocs (12 directs + 3 niveaux d'indirection)
+// avec des blocs de 4 Ko : environ 549 To, soit une taille pratiquement illimitee
 const MAX_BLOCS_FICHIER: u64 =
-    NB_BLOCS_DIRECTS as u64 + POINTEURS_PAR_BLOC + POINTEURS_PAR_BLOC * POINTEURS_PAR_BLOC;
+    NB_BLOCS_DIRECTS as u64 + CAP_INDIRECT + CAP_DOUBLE + CAP_TRIPLE;
 // donnees associees pour l'enveloppe de cle
 const AAD_CLE: &[u8] = b"cle_volume_monarque";
 
@@ -31,6 +37,20 @@ fn maintenant() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// remplissage complet d'un tampon depuis un flux, tolere les lectures partielles
+fn remplir_tampon<R: Read + ?Sized>(source: &mut R, tampon: &mut [u8]) -> ResultatFs<usize> {
+    let mut total = 0;
+    while total < tampon.len() {
+        match source.read(&mut tampon[total..]) {
+            Ok(0) => break,
+            Ok(n) => total += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(ErreurFs::Io(e)),
+        }
+    }
+    Ok(total)
 }
 
 // informations d'une entree listee
@@ -274,31 +294,83 @@ impl<S: Stockage> Volume<S> {
         )
     }
 
+    // parcours d'un arbre d'indirection : collecte les blocs de donnees
+    fn collecter_indirection(
+        &mut self,
+        racine: u64,
+        niveau: u32,
+        restant: &mut u64,
+        sortie: &mut Vec<u64>,
+    ) -> ResultatFs<()> {
+        if *restant == 0 {
+            return Ok(());
+        }
+        let pointeurs = self.lire_bloc_pointeurs(racine)?;
+        if niveau == 1 {
+            let prendre = (*restant).min(POINTEURS_PAR_BLOC);
+            sortie.extend_from_slice(&pointeurs[..prendre as usize]);
+            *restant -= prendre;
+        } else {
+            for p in pointeurs {
+                if *restant == 0 {
+                    break;
+                }
+                self.collecter_indirection(p, niveau - 1, restant, sortie)?;
+            }
+        }
+        Ok(())
+    }
+
+    // construction d'un arbre d'indirection, renvoie le pointeur racine
+    fn construire_indirection(&mut self, blocs: &[u64], niveau: u32) -> ResultatFs<u64> {
+        if niveau == 1 {
+            let racine = self.allouer_bloc()?;
+            self.ecrire_bloc_pointeurs(racine, blocs)?;
+            return Ok(racine);
+        }
+        // capacite d'un sous-arbre de niveau inferieur
+        let capacite = POINTEURS_PAR_BLOC.pow(niveau - 1) as usize;
+        let mut enfants = Vec::new();
+        for groupe in blocs.chunks(capacite) {
+            enfants.push(self.construire_indirection(groupe, niveau - 1)?);
+        }
+        let racine = self.allouer_bloc()?;
+        self.ecrire_bloc_pointeurs(racine, &enfants)?;
+        Ok(racine)
+    }
+
+    // liberation des seuls blocs de pointeurs d'un arbre d'indirection
+    fn liberer_indirection(&mut self, racine: u64, niveau: u32) -> ResultatFs<()> {
+        if niveau > 1 {
+            let pointeurs = self.lire_bloc_pointeurs(racine)?;
+            for p in pointeurs {
+                if p != 0 {
+                    self.liberer_indirection(p, niveau - 1)?;
+                }
+            }
+        }
+        self.liberer_bloc(racine);
+        Ok(())
+    }
+
     // liste ordonnee des blocs de donnees d'un inode
     fn collecter_blocs(&mut self, inode: &Inode) -> ResultatFs<Vec<u64>> {
         let nb = (inode.taille as usize).div_ceil(TAILLE_BLOC) as u64;
-        let mut blocs = Vec::with_capacity(nb as usize);
-        for i in 0..nb.min(NB_BLOCS_DIRECTS as u64) {
+        let mut blocs = Vec::with_capacity(nb.min(1 << 20) as usize);
+        let mut restant = nb;
+        let directs = restant.min(NB_BLOCS_DIRECTS as u64);
+        for i in 0..directs {
             blocs.push(inode.blocs_directs[i as usize]);
         }
-        if nb > NB_BLOCS_DIRECTS as u64 && inode.bloc_indirect != 0 {
-            let pointeurs = self.lire_bloc_pointeurs(inode.bloc_indirect)?;
-            let reste = (nb - NB_BLOCS_DIRECTS as u64).min(POINTEURS_PAR_BLOC);
-            blocs.extend_from_slice(&pointeurs[..reste as usize]);
+        restant -= directs;
+        if restant > 0 && inode.bloc_indirect != 0 {
+            self.collecter_indirection(inode.bloc_indirect, 1, &mut restant, &mut blocs)?;
         }
-        let seuil_double = NB_BLOCS_DIRECTS as u64 + POINTEURS_PAR_BLOC;
-        if nb > seuil_double && inode.bloc_double_indirect != 0 {
-            let niveau1 = self.lire_bloc_pointeurs(inode.bloc_double_indirect)?;
-            let mut restant = nb - seuil_double;
-            for &p in niveau1.iter() {
-                if restant == 0 {
-                    break;
-                }
-                let niveau2 = self.lire_bloc_pointeurs(p)?;
-                let prendre = restant.min(POINTEURS_PAR_BLOC);
-                blocs.extend_from_slice(&niveau2[..prendre as usize]);
-                restant -= prendre;
-            }
+        if restant > 0 && inode.bloc_double_indirect != 0 {
+            self.collecter_indirection(inode.bloc_double_indirect, 2, &mut restant, &mut blocs)?;
+        }
+        if restant > 0 && inode.bloc_triple_indirect != 0 {
+            self.collecter_indirection(inode.bloc_triple_indirect, 3, &mut restant, &mut blocs)?;
         }
         Ok(blocs)
     }
@@ -309,37 +381,66 @@ impl<S: Stockage> Volume<S> {
         for bloc in blocs {
             self.liberer_bloc(bloc);
         }
-        let nb = (inode.taille as usize).div_ceil(TAILLE_BLOC) as u64;
         if inode.bloc_indirect != 0 {
-            self.liberer_bloc(inode.bloc_indirect);
+            self.liberer_indirection(inode.bloc_indirect, 1)?;
         }
         if inode.bloc_double_indirect != 0 {
-            let niveau1 = self.lire_bloc_pointeurs(inode.bloc_double_indirect)?;
-            let seuil = NB_BLOCS_DIRECTS as u64 + POINTEURS_PAR_BLOC;
-            let nb_niveau2 = nb.saturating_sub(seuil).div_ceil(POINTEURS_PAR_BLOC);
-            for &p in niveau1.iter().take(nb_niveau2 as usize) {
-                self.liberer_bloc(p);
-            }
-            self.liberer_bloc(inode.bloc_double_indirect);
+            self.liberer_indirection(inode.bloc_double_indirect, 2)?;
+        }
+        if inode.bloc_triple_indirect != 0 {
+            self.liberer_indirection(inode.bloc_triple_indirect, 3)?;
         }
         Ok(())
     }
 
-    // remplacement complet du contenu d'un inode
-    fn ecrire_contenu(&mut self, id: u64, donnees: &[u8]) -> ResultatFs<()> {
+    // pose la liste des blocs de donnees dans l'inode : directs puis indirections
+    fn poser_blocs_et_arbre(&mut self, id: u64, blocs: Vec<u64>, taille: u64) -> ResultatFs<()> {
         let mut inode = self.lire_inode(id)?;
-        self.liberer_contenu(&inode)?;
         inode.blocs_directs = [0; NB_BLOCS_DIRECTS];
         inode.bloc_indirect = 0;
         inode.bloc_double_indirect = 0;
+        inode.bloc_triple_indirect = 0;
 
-        let nb = donnees.len().div_ceil(TAILLE_BLOC) as u64;
-        if nb > MAX_BLOCS_FICHIER {
+        if blocs.len() as u64 > MAX_BLOCS_FICHIER {
             return Err(ErreurFs::FichierTropGrand);
         }
 
+        // pointeurs directs
+        for (i, &bloc) in blocs.iter().take(NB_BLOCS_DIRECTS).enumerate() {
+            inode.blocs_directs[i] = bloc;
+        }
+        // zones d'indirection successives
+        let mut reste = if blocs.len() > NB_BLOCS_DIRECTS {
+            &blocs[NB_BLOCS_DIRECTS..]
+        } else {
+            &[][..]
+        };
+        for (niveau, capacite) in [(1u32, CAP_INDIRECT), (2, CAP_DOUBLE), (3, CAP_TRIPLE)] {
+            if reste.is_empty() {
+                break;
+            }
+            let n = reste.len().min(capacite as usize);
+            let racine = self.construire_indirection(&reste[..n], niveau)?;
+            match niveau {
+                1 => inode.bloc_indirect = racine,
+                2 => inode.bloc_double_indirect = racine,
+                _ => inode.bloc_triple_indirect = racine,
+            }
+            reste = &reste[n..];
+        }
+
+        inode.taille = taille;
+        inode.modifie = maintenant();
+        self.ecrire_inode(id, &inode)?;
+        self.purger_bitmap()
+    }
+
+    // remplacement complet du contenu d'un inode (donnees en memoire)
+    fn ecrire_contenu(&mut self, id: u64, donnees: &[u8]) -> ResultatFs<()> {
+        let inode = self.lire_inode(id)?;
+        self.liberer_contenu(&inode)?;
         // ecriture des blocs de donnees
-        let mut blocs = Vec::with_capacity(nb as usize);
+        let mut blocs = Vec::with_capacity(donnees.len().div_ceil(TAILLE_BLOC));
         for morceau in donnees.chunks(TAILLE_BLOC) {
             let bloc = self.allouer_bloc()?;
             let mut tampon = vec![0u8; TAILLE_BLOC];
@@ -353,37 +454,40 @@ impl<S: Stockage> Volume<S> {
             )?;
             blocs.push(bloc);
         }
+        self.poser_blocs_et_arbre(id, blocs, donnees.len() as u64)
+    }
 
-        // pointeurs directs
-        for (i, &bloc) in blocs.iter().take(NB_BLOCS_DIRECTS).enumerate() {
-            inode.blocs_directs[i] = bloc;
-        }
-        // indirection simple
-        if blocs.len() > NB_BLOCS_DIRECTS {
-            let fin = (NB_BLOCS_DIRECTS + POINTEURS_PAR_BLOC as usize).min(blocs.len());
-            let pointeurs = &blocs[NB_BLOCS_DIRECTS..fin];
-            inode.bloc_indirect = self.allouer_bloc()?;
-            self.ecrire_bloc_pointeurs(inode.bloc_indirect, pointeurs)?;
-        }
-        // indirection double
-        let seuil = NB_BLOCS_DIRECTS + POINTEURS_PAR_BLOC as usize;
-        if blocs.len() > seuil {
-            let restants = &blocs[seuil..];
-            let mut niveau1 = Vec::new();
-            for groupe in restants.chunks(POINTEURS_PAR_BLOC as usize) {
-                let bloc_niveau2 = self.allouer_bloc()?;
-                self.ecrire_bloc_pointeurs(bloc_niveau2, groupe)?;
-                niveau1.push(bloc_niveau2);
+    // remplacement du contenu depuis un flux, sans charger le fichier en memoire
+    fn ecrire_contenu_flux<R: Read + ?Sized>(&mut self, id: u64, source: &mut R) -> ResultatFs<u64> {
+        let inode = self.lire_inode(id)?;
+        self.liberer_contenu(&inode)?;
+        let mut blocs = Vec::new();
+        let mut taille: u64 = 0;
+        let mut tampon = vec![0u8; TAILLE_BLOC];
+        loop {
+            let lu = remplir_tampon(source, &mut tampon)?;
+            if lu == 0 {
+                break;
             }
-            inode.bloc_double_indirect = self.allouer_bloc()?;
-            let niveau1_copie = niveau1.clone();
-            self.ecrire_bloc_pointeurs(inode.bloc_double_indirect, &niveau1_copie)?;
+            for octet in tampon.iter_mut().skip(lu) {
+                *octet = 0;
+            }
+            let bloc = self.allouer_bloc()?;
+            ecrire_bloc(
+                &mut self.stockage,
+                self.algo.as_ref(),
+                &self.cle_volume,
+                bloc,
+                &tampon,
+            )?;
+            blocs.push(bloc);
+            taille += lu as u64;
+            if lu < TAILLE_BLOC {
+                break;
+            }
         }
-
-        inode.taille = donnees.len() as u64;
-        inode.modifie = maintenant();
-        self.ecrire_inode(id, &inode)?;
-        self.purger_bitmap()
+        self.poser_blocs_et_arbre(id, blocs, taille)?;
+        Ok(taille)
     }
 
     // lecture complete du contenu d'un inode
@@ -397,6 +501,20 @@ impl<S: Stockage> Volume<S> {
         }
         donnees.truncate(inode.taille as usize);
         Ok(donnees)
+    }
+
+    // ecriture du contenu d'un inode dans un flux, bloc par bloc
+    fn lire_contenu_flux<W: Write + ?Sized>(&mut self, inode: &Inode, sortie: &mut W) -> ResultatFs<()> {
+        let blocs = self.collecter_blocs(inode)?;
+        let mut restant = inode.taille;
+        for bloc in blocs {
+            let contenu =
+                lire_bloc(&mut self.stockage, self.algo.as_ref(), &self.cle_volume, bloc)?;
+            let n = restant.min(TAILLE_BLOC as u64) as usize;
+            sortie.write_all(&contenu[..n])?;
+            restant -= n as u64;
+        }
+        Ok(())
     }
 
     fn purger_bitmap(&mut self) -> ResultatFs<()> {
@@ -528,6 +646,27 @@ impl<S: Stockage> Volume<S> {
         self.ecrire_contenu(id, donnees)
     }
 
+    // ecriture d'un fichier depuis un flux, taille pratiquement illimitee
+    // les donnees ne transitent jamais entierement par la memoire
+    pub fn ecrire_fichier_flux<R: Read + ?Sized>(
+        &mut self,
+        chemin: &str,
+        source: &mut R,
+    ) -> ResultatFs<u64> {
+        let chemin = Self::normaliser(chemin)?;
+        let id = match self.index.chercher(&chemin) {
+            Some(id) => {
+                let inode = self.lire_inode(id)?;
+                if inode.type_noeud != TypeNoeud::Fichier {
+                    return Err(ErreurFs::PasUnFichier(chemin));
+                }
+                id
+            }
+            None => self.creer_noeud(&chemin, TypeNoeud::Fichier)?,
+        };
+        self.ecrire_contenu_flux(id, source)
+    }
+
     // lecture complete d'un fichier, dechiffrement en memoire seulement
     pub fn lire_fichier(&mut self, chemin: &str) -> ResultatFs<Vec<u8>> {
         let chemin = Self::normaliser(chemin)?;
@@ -537,6 +676,24 @@ impl<S: Stockage> Volume<S> {
             return Err(ErreurFs::PasUnFichier(chemin));
         }
         self.lire_contenu(&inode)
+    }
+
+    // lecture d'un fichier vers un flux, bloc par bloc
+    pub fn lire_fichier_flux<W: Write + ?Sized>(&mut self, chemin: &str, sortie: &mut W) -> ResultatFs<()> {
+        let chemin = Self::normaliser(chemin)?;
+        let id = self.resoudre(&chemin)?;
+        let inode = self.lire_inode(id)?;
+        if inode.type_noeud != TypeNoeud::Fichier {
+            return Err(ErreurFs::PasUnFichier(chemin));
+        }
+        self.lire_contenu_flux(&inode, sortie)
+    }
+
+    // taille d'un fichier sans lire son contenu
+    pub fn taille_fichier(&mut self, chemin: &str) -> ResultatFs<u64> {
+        let chemin = Self::normaliser(chemin)?;
+        let id = self.resoudre(&chemin)?;
+        Ok(self.lire_inode(id)?.taille)
     }
 
     // liste des entrees d'un dossier

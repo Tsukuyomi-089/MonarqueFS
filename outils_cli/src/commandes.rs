@@ -102,7 +102,9 @@ pub fn executer(commande: &str, arguments: &[String]) -> ResultatCli {
                 println!("aucun peripherique detecte");
             }
             for p in peripheriques {
-                let etat = if !p.accessible {
+                let etat = if p.est_systeme {
+                    "disque systeme (protege)"
+                } else if !p.accessible {
                     "acces refuse (voir : monarque installer_udev)"
                 } else if p.est_monarque {
                     "MonarqueFS"

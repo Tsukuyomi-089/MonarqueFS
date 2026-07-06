@@ -1,5 +1,6 @@
 // detection des peripheriques de stockage et des volumes monarque
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,15 @@ pub struct InfoPeripherique {
     pub est_monarque: bool,
     // lisible avec les droits actuels
     pub accessible: bool,
+    // disque hebergeant le systeme d'exploitation : protege
+    pub est_systeme: bool,
+}
+
+impl InfoPeripherique {
+    // un support est formatable s'il n'heberge pas le systeme
+    pub fn formatable(&self) -> bool {
+        !self.est_systeme
+    }
 }
 
 // lecture d'un fichier sysfs en texte
@@ -26,6 +36,60 @@ fn lire_sys(chemin: &str) -> Option<String> {
     std::fs::read_to_string(chemin)
         .ok()
         .map(|t| t.trim().to_string())
+}
+
+// disque physique portant le nom de partition donne, ex : nvme0n1p3 -> nvme0n1
+fn disque_parent(partition: &str) -> String {
+    // nvme et mmc utilisent le suffixe pN
+    if let Some(pos) = partition.rfind('p') {
+        if partition[pos + 1..].chars().all(|c| c.is_ascii_digit())
+            && !partition[pos + 1..].is_empty()
+            && (partition.starts_with("nvme") || partition.starts_with("mmcblk"))
+        {
+            return partition[..pos].to_string();
+        }
+    }
+    // sda1 -> sda : on retire les chiffres finaux
+    partition.trim_end_matches(|c: char| c.is_ascii_digit()).to_string()
+}
+
+// disques physiques hebergeant le systeme (racine et amorcage)
+fn disques_systeme() -> HashSet<String> {
+    let mut disques = HashSet::new();
+    let Ok(montages) = std::fs::read_to_string("/proc/mounts") else {
+        return disques;
+    };
+    for ligne in montages.lines() {
+        let mut champs = ligne.split_whitespace();
+        let (Some(source), Some(point)) = (champs.next(), champs.next()) else {
+            continue;
+        };
+        // seuls les points sensibles nous interessent
+        if point != "/" && point != "/boot" && !point.starts_with("/boot/") {
+            continue;
+        }
+        if let Some(nom) = source.strip_prefix("/dev/") {
+            disques.insert(disque_parent(nom));
+            // resolution des peripheriques mappes (luks, lvm) vers leurs disques physiques
+            for esclave in esclaves_physiques(nom) {
+                disques.insert(esclave);
+            }
+        }
+    }
+    disques
+}
+
+// disques physiques sous-jacents d'un peripherique mappe (dm, md)
+fn esclaves_physiques(nom: &str) -> Vec<String> {
+    let mut resultat = Vec::new();
+    let chemin = format!("/sys/class/block/{nom}/slaves");
+    if let Ok(entrees) = std::fs::read_dir(&chemin) {
+        for entree in entrees.flatten() {
+            let esclave = entree.file_name().to_string_lossy().into_owned();
+            resultat.push(disque_parent(&esclave));
+        }
+    }
+    resultat
 }
 
 // verification de la signature monarque en tete de support
@@ -39,6 +103,7 @@ pub fn est_monarque(chemin: &Path) -> Option<bool> {
 // enumeration des peripheriques bloc du systeme
 pub fn lister_peripheriques() -> Vec<InfoPeripherique> {
     let mut peripheriques = Vec::new();
+    let systeme = disques_systeme();
     let Ok(entrees) = std::fs::read_dir("/sys/block") else {
         return peripheriques;
     };
@@ -67,7 +132,9 @@ pub fn lister_peripheriques() -> Vec<InfoPeripherique> {
             .unwrap_or_else(|| "peripherique".to_string());
         let chemin = PathBuf::from(format!("/dev/{nom}"));
         let verdict = est_monarque(&chemin);
+        let est_systeme = systeme.contains(&nom);
         peripheriques.push(InfoPeripherique {
+            est_systeme,
             nom,
             chemin,
             modele,

@@ -1,6 +1,7 @@
 // point d'entree du gestionnaire de fichiers graphique
 
 mod application;
+mod gestionnaire;
 mod theme;
 
 use application::ApplicationMonarque;

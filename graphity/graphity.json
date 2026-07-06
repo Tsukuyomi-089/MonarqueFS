@@ -18,15 +18,15 @@
     },
     "systeme_fichiers": {
       "type": "bibliotheque",
-      "role": "volume chiffre : blocs, inodes, dossiers, index rapide",
+      "role": "volume chiffre : blocs, inodes 3 niveaux d'indirection, dossiers, index, flux",
       "fichiers": {
         "src/superbloc.rs": "bloc 0 : geometrie, sel kdf, cle de volume enveloppee",
         "src/bloc.rs": "blocs de 4096 octets, format disque nonce+chiffre+etiquette (4124)",
         "src/bitmap.rs": "allocation des blocs de donnees, ecriture des blocs sales seulement",
-        "src/inode.rs": "inodes de 256 octets : 12 directs, indirect simple et double, metadonnees etendues",
+        "src/inode.rs": "inodes de 256 octets : 12 directs, indirections simple/double/triple, metadonnees etendues",
         "src/dossier.rs": "entrees de dossier de 64 octets",
         "src/index.rs": "table de hachage chemin vers inode, resolution O(1)",
-        "src/volume.rs": "formatage, montage, operations fichiers et dossiers",
+        "src/volume.rs": "formatage, montage, operations fichiers/dossiers, ecriture et lecture en flux (taille illimitee)",
         "src/stockage.rs": "trait Stockage : partition ou memoire (tests)",
         "src/chiffrement/": "chacha20, poly1305, aead, sha256, pbkdf2, alea systeme, trait AlgorithmeChiffrement"
       },
@@ -41,8 +41,10 @@
       "fichiers": {
         "src/administration.rs": "creation disque, partitionnement, formatage, ouverture de partition",
         "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer",
-        "src/surveillance.rs": "detection des peripheriques bloc via /sys/block et signature MONARQUE",
-        "src/mise_a_jour.rs": "mise a jour automatique : git pull du depot officiel, recompilation cargo, installation et relance"
+        "src/surveillance.rs": "detection peripheriques, signature MONARQUE, protection du disque systeme",
+        "src/mise_a_jour.rs": "mise a jour automatique : git pull du depot officiel, recompilation cargo, installation et relance",
+        "src/arborescence.rs": "arborescence unifiee hote + volume, copie recursive en flux",
+        "src/privileges.rs": "autorisation d'acces via pkexec (fenetre graphique polkit)"
       },
       "dependances": [
         "noyau_partition",
@@ -70,11 +72,12 @@
     "interface_graphique": {
       "type": "binaire",
       "binaire": "monarque_gui",
-      "role": "gestionnaire de fichiers graphique moderne et anime, ouvert automatiquement par le demon",
+      "role": "gestionnaire de fichiers graphique deux panneaux, moderne et anime",
       "fichiers": {
         "src/main.rs": "point d'entree eframe",
-        "src/application.rs": "ecrans accueil (detection en direct), deverrouillage, formatage, parametres (mise a jour integree), explorateur",
-        "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies"
+        "src/application.rs": "ecrans accueil (detection, autorisation pkexec, disque OS protege), deverrouillage, formatage, parametres, gestionnaire",
+        "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies",
+        "src/gestionnaire.rs": "gestionnaire deux panneaux : hote a gauche, cle a droite, copier/supprimer/renommer"
       },
       "dependances": [
         "gestionnaire_fichiers",
@@ -173,12 +176,33 @@
         "remplacement des binaires dans ~/.local/bin (suppression prealable, binaires en cours d'execution)",
         "arret de l'ancien demon, relance de monarque_veille et monarque_gui"
       ]
+    },
+    {
+      "nom": "copie de fichiers entre le PC et la cle",
+      "etapes": [
+        "gestionnaire deux panneaux : hote a gauche, volume monarque a droite",
+        "selection d'un fichier ou dossier, bouton copier vers la cle ou vers le PC",
+        "copie en flux bloc par bloc, sans charger le fichier en memoire (taille illimitee)",
+        "hote->volume : lecture directe du fichier hote ; volume->hote : ecriture directe",
+        "chiffrement immediat des blocs ecrits sur la cle"
+      ]
+    },
+    {
+      "nom": "autorisation d'acces aux peripheriques",
+      "etapes": [
+        "clic sur Autoriser l'acces dans l'ecran d'accueil",
+        "pkexec affiche une fenetre de mot de passe (polkit), aucune commande a taper",
+        "installation de la regle udev, rechargement et application immediate",
+        "le disque systeme est detecte via /proc/mounts et reste protege"
+      ]
     }
   ],
   "invariants": [
     "aucune donnee en clair sur le disque (verifie par test)",
     "jamais de cle en clair sur le disque",
     "dechiffrement en memoire uniquement",
-    "graphity.json mis a jour apres chaque tache"
+    "graphity.json mis a jour apres chaque tache",
+    "le disque hebergeant le systeme d'exploitation n'est jamais formatable",
+    "taille de fichier pratiquement illimitee (indirection triple, flux sans memoire)"
   ]
 }

@@ -6,8 +6,8 @@ use crate::erreurs::{ErreurFs, ResultatFs};
 pub const TAILLE_INODE: usize = 256;
 // nombre de pointeurs directs
 pub const NB_BLOCS_DIRECTS: usize = 12;
-// zone reservee aux metadonnees etendues
-pub const TAILLE_META: usize = 112;
+// debut des metadonnees etendues dans l'inode
+pub const DEBUT_META: usize = 152;
 // identifiant de l'inode racine
 pub const INODE_RACINE: u64 = 1;
 
@@ -50,6 +50,7 @@ pub struct Inode {
     pub blocs_directs: [u64; NB_BLOCS_DIRECTS],
     pub bloc_indirect: u64,
     pub bloc_double_indirect: u64,
+    pub bloc_triple_indirect: u64,
     // metadonnees etendues cle valeur
     pub metas: Vec<(String, String)>,
 }
@@ -65,6 +66,7 @@ impl Inode {
             blocs_directs: [0; NB_BLOCS_DIRECTS],
             bloc_indirect: 0,
             bloc_double_indirect: 0,
+            bloc_triple_indirect: 0,
             metas: Vec::new(),
         }
     }
@@ -79,6 +81,7 @@ impl Inode {
             blocs_directs: [0; NB_BLOCS_DIRECTS],
             bloc_indirect: 0,
             bloc_double_indirect: 0,
+            bloc_triple_indirect: 0,
             metas: Vec::new(),
         }
     }
@@ -96,8 +99,9 @@ impl Inode {
         }
         tampon[128..136].copy_from_slice(&self.bloc_indirect.to_le_bytes());
         tampon[136..144].copy_from_slice(&self.bloc_double_indirect.to_le_bytes());
+        tampon[144..152].copy_from_slice(&self.bloc_triple_indirect.to_le_bytes());
         // metadonnees : longueur cle, longueur valeur, octets
-        let mut curseur = 144;
+        let mut curseur = DEBUT_META;
         for (cle, valeur) in &self.metas {
             let c = cle.as_bytes();
             let v = valeur.as_bytes();
@@ -126,7 +130,7 @@ impl Inode {
         }
         // lecture des metadonnees jusqu'a la cle vide
         let mut metas = Vec::new();
-        let mut curseur = 144;
+        let mut curseur = DEBUT_META;
         while curseur + 2 <= TAILLE_INODE {
             let lc = tampon[curseur] as usize;
             if lc == 0 {
@@ -153,6 +157,7 @@ impl Inode {
             blocs_directs,
             bloc_indirect: u64_a(128),
             bloc_double_indirect: u64_a(136),
+            bloc_triple_indirect: u64_a(144),
             metas,
         })
     }

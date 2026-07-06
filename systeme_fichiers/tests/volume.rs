@@ -104,6 +104,26 @@ fn gros_fichier_indirections() {
 }
 
 #[test]
+fn ecriture_lecture_en_flux() {
+    // ecriture par flux puis relecture par flux, sans passer par la memoire complete
+    let mut stockage = StockageMemoire::nouveau(16 * 1024 * 1024);
+    formater(&mut stockage, PHRASE).unwrap();
+    let mut volume = monter(stockage, PHRASE).unwrap();
+    // 5 Mo : force les indirections simple et double
+    let source: Vec<u8> = (0..5_000_000u32).map(|i| (i.wrapping_mul(7) % 251) as u8).collect();
+    let mut lecteur = std::io::Cursor::new(source.clone());
+    let ecrit = volume.ecrire_fichier_flux("/flux.bin", &mut lecteur).unwrap();
+    assert_eq!(ecrit, source.len() as u64);
+    assert_eq!(volume.taille_fichier("/flux.bin").unwrap(), source.len() as u64);
+    // relecture par flux
+    let mut sortie = Vec::new();
+    volume.lire_fichier_flux("/flux.bin", &mut sortie).unwrap();
+    assert_eq!(sortie, source);
+    // coherence avec la lecture classique
+    assert_eq!(volume.lire_fichier("/flux.bin").unwrap(), source);
+}
+
+#[test]
 fn suppression_et_regles() {
     let stockage = volume_pret();
     let mut volume = monter(stockage, PHRASE).unwrap();

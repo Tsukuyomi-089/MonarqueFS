@@ -3,6 +3,7 @@
 use crate::administration::ouvrir_partition;
 use noyau_partition::VuePartition;
 use systeme_fichiers::{monter, InfoEntree, ResultatFs, Statistiques, Volume};
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub struct Session {
@@ -52,6 +53,21 @@ impl Session {
 
     pub fn statistiques(&self) -> Statistiques {
         self.volume.statistiques()
+    }
+
+    // ecriture d'un fichier depuis un flux (copie de taille illimitee)
+    pub fn ecrire_flux(&mut self, chemin: &str, source: &mut dyn Read) -> ResultatFs<u64> {
+        self.volume.ecrire_fichier_flux(chemin, source)
+    }
+
+    // lecture d'un fichier vers un flux
+    pub fn lire_flux(&mut self, chemin: &str, sortie: &mut dyn Write) -> ResultatFs<()> {
+        self.volume.lire_fichier_flux(chemin, sortie)
+    }
+
+    // taille d'un fichier sans lire son contenu
+    pub fn taille_fichier(&mut self, chemin: &str) -> ResultatFs<u64> {
+        self.volume.taille_fichier(chemin)
     }
 
     // import d'un fichier de l'hote vers le volume
