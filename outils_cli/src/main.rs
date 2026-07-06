@@ -17,6 +17,7 @@ commandes disque :
   inspecter <image>                          affiche la table de partition
   peripheriques                              liste les peripheriques detectes
   preparer <support> <nom>                   table + partition + volume en une etape
+  supprimer_monarque <support>               efface monarque du support (irreversible)
 
 commandes systeme :
   installer                                  installe binaires, veille et menus

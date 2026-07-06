@@ -5,8 +5,8 @@ use crate::theme;
 use eframe::egui;
 use gestionnaire_fichiers::mise_a_jour::{self, EtapeMaj};
 use gestionnaire_fichiers::{
-    autoriser_peripheriques, lister_peripheriques, preparer_support, ArbreVolume,
-    InfoPeripherique, Session,
+    autoriser_peripheriques, lister_peripheriques, preparer_support, supprimer_monarque,
+    ArbreVolume, InfoPeripherique, Session,
 };
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -53,6 +53,8 @@ pub struct ApplicationMonarque {
     accepte_effacement: bool,
     chemin_image: String,
     index_image: String,
+    // suppression de monarque en attente de confirmation
+    suppression: Option<Cible>,
     // taches en arriere plan
     formatage: Option<mpsc::Receiver<Result<(), String>>>,
     autorisation: Option<mpsc::Receiver<Result<(), String>>>,
@@ -80,6 +82,7 @@ impl ApplicationMonarque {
             accepte_effacement: false,
             chemin_image: String::new(),
             index_image: "0".to_string(),
+            suppression: None,
             formatage: None,
             autorisation: None,
             maj: None,
@@ -236,9 +239,29 @@ impl ApplicationMonarque {
         }
     }
 
+    // cible construite depuis un peripherique detecte
+    fn cible_depuis(peripherique: &InfoPeripherique) -> Cible {
+        Cible {
+            chemin: peripherique.chemin.clone(),
+            etiquette: peripherique.modele.clone(),
+            taille_octets: peripherique.taille_octets,
+            index_partition: 0,
+        }
+    }
+
+    // ouverture de l'ecran de formatage pour une cible
+    fn ouvrir_formatage(&mut self, cible: Cible) {
+        self.cible = Some(cible);
+        self.nom_volume.clear();
+        self.phrase.clear();
+        self.phrase_confirmation.clear();
+        self.accepte_effacement = false;
+        self.changer_ecran(Ecran::Formatage);
+    }
+
     fn carte_peripherique(&mut self, ui: &mut egui::Ui, peripherique: &InfoPeripherique) {
         let temps = ui.input(|i| i.time);
-        theme::carte().show(ui, |ui| {
+        let reponse = theme::carte().show(ui, |ui| {
             ui.horizontal(|ui| {
                 let icone = if peripherique.est_systeme {
                     "🖥"
@@ -287,12 +310,7 @@ impl ApplicationMonarque {
                             .button(egui::RichText::new("🔓 Déverrouiller").color(theme::TEXTE))
                             .clicked()
                         {
-                            self.cible = Some(Cible {
-                                chemin: peripherique.chemin.clone(),
-                                etiquette: peripherique.modele.clone(),
-                                taille_octets: peripherique.taille_octets,
-                                index_partition: 0,
-                            });
+                            self.cible = Some(Self::cible_depuis(peripherique));
                             self.changer_ecran(Ecran::Deverrouillage);
                         }
                         ui.label(
@@ -303,23 +321,103 @@ impl ApplicationMonarque {
                         ui.ctx().request_repaint();
                     } else {
                         if ui.button("Formater…").clicked() {
-                            self.cible = Some(Cible {
-                                chemin: peripherique.chemin.clone(),
-                                etiquette: peripherique.modele.clone(),
-                                taille_octets: peripherique.taille_octets,
-                                index_partition: 0,
-                            });
-                            self.nom_volume.clear();
-                            self.phrase.clear();
-                            self.phrase_confirmation.clear();
-                            self.accepte_effacement = false;
-                            self.changer_ecran(Ecran::Formatage);
+                            self.ouvrir_formatage(Self::cible_depuis(peripherique));
                         }
                         ui.label(
                             egui::RichText::new("non formaté")
                                 .color(theme::TEXTE_FAIBLE)
                                 .small(),
                         );
+                    }
+                });
+            });
+        });
+
+        // menu contextuel au clic droit sur la carte
+        let reponse = reponse.response.interact(egui::Sense::click());
+        if peripherique.est_systeme {
+            reponse.on_hover_text("disque système : protégé, aucune action possible");
+            return;
+        }
+        reponse.context_menu(|ui| {
+            ui.set_min_width(220.0);
+            if !peripherique.accessible {
+                if ui.button("🔑 Autoriser l'accès").clicked() {
+                    self.lancer_autorisation();
+                    ui.close();
+                }
+                return;
+            }
+            if peripherique.est_monarque {
+                if ui.button("🔓 Déverrouiller").clicked() {
+                    self.cible = Some(Self::cible_depuis(peripherique));
+                    self.changer_ecran(Ecran::Deverrouillage);
+                    ui.close();
+                }
+                if ui.button("♻ Reformater…").clicked() {
+                    self.ouvrir_formatage(Self::cible_depuis(peripherique));
+                    ui.close();
+                }
+                ui.separator();
+                let bouton = egui::Button::new(
+                    egui::RichText::new("🗑 Supprimer MonarqueFS…").color(theme::DANGER),
+                );
+                if ui.add(bouton).clicked() {
+                    self.suppression = Some(Self::cible_depuis(peripherique));
+                    ui.close();
+                }
+            } else if ui.button("⚡ Formater en MonarqueFS…").clicked() {
+                self.ouvrir_formatage(Self::cible_depuis(peripherique));
+                ui.close();
+            }
+        });
+    }
+
+    // modale de confirmation de suppression de monarque
+    fn modale_suppression(&mut self, ctx: &egui::Context) {
+        let Some(cible) = self.suppression.clone() else {
+            return;
+        };
+        let modale = egui::Modal::new(egui::Id::new("confirmation_suppression"));
+        modale.show(ctx, |ui| {
+            ui.set_max_width(400.0);
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("🗑").size(34.0).color(theme::DANGER));
+                ui.label(
+                    egui::RichText::new(format!("Supprimer MonarqueFS de {} ?", cible.etiquette))
+                        .strong()
+                        .size(17.0),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "la table, les volumes et les clés de chiffrement seront effacés :\n\
+                         tous les fichiers deviendront définitivement illisibles",
+                    )
+                    .color(theme::TEXTE_FAIBLE),
+                );
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(60.0);
+                    if ui.button("Annuler").clicked() {
+                        self.suppression = None;
+                    }
+                    let bouton = egui::Button::new(
+                        egui::RichText::new("Supprimer définitivement").strong(),
+                    )
+                    .fill(theme::DANGER);
+                    if ui.add(bouton).clicked() {
+                        match supprimer_monarque(&cible.chemin) {
+                            Ok(()) => {
+                                self.signaler(
+                                    format!("MonarqueFS supprimé de {}", cible.etiquette),
+                                    false,
+                                );
+                                self.derniere_analyse = None;
+                            }
+                            Err(e) => self.signaler(format!("{e}"), true),
+                        }
+                        self.suppression = None;
                     }
                 });
             });
@@ -795,6 +893,8 @@ impl eframe::App for ApplicationMonarque {
         match self.ecran {
             Ecran::Accueil => {
                 egui::CentralPanel::default().show(ui, |ui| self.ecran_accueil(ui));
+                let ctx = ui.ctx().clone();
+                self.modale_suppression(&ctx);
             }
             Ecran::Deverrouillage => {
                 egui::CentralPanel::default().show(ui, |ui| self.ecran_deverrouillage(ui));

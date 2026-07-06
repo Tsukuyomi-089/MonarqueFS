@@ -1,7 +1,7 @@
 // administration du disque : creation, partitionnement, formatage
 
 use noyau_partition::{DisqueLogique, TablePartition, TypePartition, VuePartition, TAILLE_SECTEUR};
-use systeme_fichiers::ResultatFs;
+use systeme_fichiers::{ErreurFs, ResultatFs};
 use std::path::Path;
 
 // description d'une partition pour l'affichage
@@ -73,6 +73,29 @@ pub fn formater_partition(chemin: &Path, index: usize, phrase: &str) -> Resultat
     let mut vue = ouvrir_partition(chemin, index)?;
     systeme_fichiers::formater(&mut vue, phrase)?;
     vue.synchroniser()?;
+    Ok(())
+}
+
+// suppression de monarque sur un support : efface la table, les superblocs
+// et les enveloppes de cles, rendant les donnees definitivement illisibles
+pub fn supprimer_monarque(chemin: &Path) -> ResultatFs<()> {
+    // refus si le support ne porte pas la signature monarque
+    if crate::surveillance::est_monarque(chemin) != Some(true) {
+        return Err(ErreurFs::VolumeInvalide(
+            "ce support ne contient pas de systeme monarque".into(),
+        ));
+    }
+    let mut disque = DisqueLogique::ouvrir(chemin)?;
+    // ecrasement du premier mio : table de partition et debut des volumes
+    let etendue = disque.taille_octets().min(1024 * 1024);
+    let zeros = vec![0u8; 64 * 1024];
+    let mut ecrit: u64 = 0;
+    while ecrit < etendue {
+        let morceau = (etendue - ecrit).min(zeros.len() as u64) as usize;
+        disque.ecrire_a(ecrit, &zeros[..morceau])?;
+        ecrit += morceau as u64;
+    }
+    disque.synchroniser()?;
     Ok(())
 }
 

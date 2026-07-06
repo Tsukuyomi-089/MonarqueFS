@@ -2,7 +2,8 @@
 
 use gestionnaire_fichiers::{
     ajouter_partition, creer_disque, formater_partition, lister_partitions,
-    lister_peripheriques, preparer_support, supprimer_partition, Session, TypeNoeud,
+    lister_peripheriques, preparer_support, supprimer_monarque, supprimer_partition, Session,
+    TypeNoeud,
 };
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -128,6 +129,11 @@ pub fn executer(commande: &str, arguments: &[String]) -> ResultatCli {
             let phrase = obtenir_phrase()?;
             preparer_support(Path::new(support), nom, &phrase)?;
             println!("support prepare : {support} (volume \"{nom}\" chiffre)");
+        }
+        "supprimer_monarque" => {
+            let support = argument(arguments, 0, "support")?;
+            supprimer_monarque(Path::new(support))?;
+            println!("monarque supprime de {support} : donnees definitivement illisibles");
         }
         "formater" => {
             let image = argument(arguments, 0, "image")?;

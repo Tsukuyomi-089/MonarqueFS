@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "systeme de stockage complet : table de partition proprietaire, systeme de fichiers chiffre par defaut, gestionnaire de fichiers graphique et outils cli",
   "langage": "rust",
-  "derniere_mise_a_jour": "2026-07-05",
+  "derniere_mise_a_jour": "2026-07-06",
   "modules": {
     "noyau_partition": {
       "type": "bibliotheque",
@@ -39,7 +39,7 @@
       "type": "bibliotheque",
       "role": "api de haut niveau pour cli et gui + surveillance des peripheriques",
       "fichiers": {
-        "src/administration.rs": "creation disque, partitionnement, formatage, ouverture de partition",
+        "src/administration.rs": "creation disque, partitionnement, formatage, preparation une etape, suppression de monarque (ecrasement du premier mio)",
         "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer",
         "src/surveillance.rs": "detection peripheriques, signature MONARQUE, protection du disque systeme",
         "src/mise_a_jour.rs": "mise a jour automatique : git pull du depot officiel, recompilation cargo, installation et relance",
@@ -57,7 +57,7 @@
       "role": "outils bas niveau + demon de veille + installation systeme",
       "fichiers": {
         "src/main.rs": "analyse des arguments et aide",
-        "src/commandes.rs": "execution des commandes, phrase via MONARQUE_PHRASE ou clavier, mise a jour en direct",
+        "src/commandes.rs": "execution des commandes dont supprimer_monarque, phrase via MONARQUE_PHRASE ou clavier",
         "src/veille.rs": "demon monarque_veille : detection continue, lancement du gestionnaire graphique",
         "src/installation.rs": "installation xdg : binaires, autostart, menu, regle udev"
       },
@@ -75,7 +75,7 @@
       "role": "gestionnaire de fichiers graphique deux panneaux, moderne et anime",
       "fichiers": {
         "src/main.rs": "point d'entree eframe",
-        "src/application.rs": "ecrans accueil (detection, autorisation pkexec, disque OS protege), deverrouillage, formatage, parametres, gestionnaire",
+        "src/application.rs": "ecrans accueil (detection, clic droit contextuel, modale de suppression), deverrouillage, formatage, parametres, gestionnaire",
         "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies",
         "src/gestionnaire.rs": "gestionnaire deux panneaux : hote a gauche, cle a droite, copier/supprimer/renommer"
       },
@@ -194,6 +194,17 @@
         "pkexec affiche une fenetre de mot de passe (polkit), aucune commande a taper",
         "installation de la regle udev, rechargement et application immediate",
         "le disque systeme est detecte via /proc/mounts et reste protege"
+      ]
+    },
+    {
+      "nom": "menu contextuel d'un peripherique (clic droit)",
+      "etapes": [
+        "clic droit sur la carte d'un peripherique dans l'ecran d'accueil",
+        "formate monarque : deverrouiller, reformater, supprimer MonarqueFS (modale de confirmation)",
+        "non formate : formater en MonarqueFS",
+        "acces refuse : autoriser l'acces (pkexec)",
+        "disque systeme : aucun menu, protection absolue",
+        "suppression : ecrasement du premier mio (table + superbloc + enveloppe de cle), donnees illisibles"
       ]
     }
   ],

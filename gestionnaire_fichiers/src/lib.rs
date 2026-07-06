@@ -9,7 +9,7 @@ pub mod surveillance;
 
 pub use administration::{
     ajouter_partition, creer_disque, formater_partition, lister_partitions, ouvrir_partition,
-    preparer_support, supprimer_partition, InfoPartition,
+    preparer_support, supprimer_monarque, supprimer_partition, InfoPartition,
 };
 pub use arborescence::{Arborescence, ArbreHote, ArbreVolume, EntreeArbre};
 pub use privileges::{autoriser_peripheriques, pkexec_disponible};
