@@ -862,25 +862,15 @@ impl ApplicationMonarque {
             self.changer_ecran(Ecran::Accueil);
             return;
         }
-        egui::Panel::bottom("barre_message_gest").show(ui, |ui| {
-            if let Some(g) = &self.gestionnaire {
-                if !g.message.is_empty() {
-                    let couleur = if g.erreur { theme::DANGER } else { theme::SUCCES };
-                    let prefixe = if g.erreur { "✖" } else { "✔" };
-                    ui.colored_label(couleur, format!("{prefixe} {}", g.message));
-                }
-            }
-        });
-        egui::CentralPanel::default().show(ui, |ui| {
-            let mut fermer = false;
-            if let Some(gestionnaire) = &mut self.gestionnaire {
-                gestionnaire.afficher(ui);
-                fermer = gestionnaire.fermeture_demandee;
-            }
-            if fermer {
-                self.verrouiller();
-            }
-        });
+        // le gestionnaire gere ses propres panneaux et sa barre d'etat
+        let mut fermer = false;
+        if let Some(gestionnaire) = &mut self.gestionnaire {
+            gestionnaire.afficher(ui);
+            fermer = gestionnaire.fermeture_demandee;
+        }
+        if fermer {
+            self.verrouiller();
+        }
     }
 }
 

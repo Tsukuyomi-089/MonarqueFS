@@ -43,7 +43,7 @@
         "src/session.rs": "session sur volume monte : lister, importer, exporter, metas, fermer",
         "src/surveillance.rs": "detection peripheriques, signature MONARQUE, protection du disque systeme",
         "src/mise_a_jour.rs": "mise a jour automatique : git pull du depot officiel, recompilation cargo, installation et relance",
-        "src/arborescence.rs": "arborescence unifiee hote + volume, copie recursive en flux",
+        "src/arborescence.rs": "arborescence unifiee hote + volume, copie recursive en flux, dates de modification, emplacements xdg (user-dirs.dirs)",
         "src/privileges.rs": "autorisation d'acces via pkexec (fenetre graphique polkit)"
       },
       "dependances": [
@@ -72,12 +72,12 @@
     "interface_graphique": {
       "type": "binaire",
       "binaire": "monarque_gui",
-      "role": "gestionnaire de fichiers graphique deux panneaux, moderne et anime",
+      "role": "gestionnaire de fichiers graphique style dolphin (kde) + ecrans de gestion des peripheriques",
       "fichiers": {
         "src/main.rs": "point d'entree eframe",
         "src/application.rs": "ecrans accueil (detection, clic droit contextuel, modale de suppression), deverrouillage, formatage, parametres, gestionnaire",
-        "src/theme.rs": "theme sombre anime : palette violet et or, cartes arrondies",
-        "src/gestionnaire.rs": "gestionnaire deux panneaux : hote a gauche, cle a droite, copier/supprimer/renommer"
+        "src/theme.rs": "theme sombre anime : palette violet et or, couleurs breeze, dates lisibles, cartes arrondies",
+        "src/gestionnaire.rs": "gestionnaire style dolphin : panneau lateral emplacements/peripheriques, historique, fil d'ariane, vues details/icones/compact, tri par colonnes, couper/copier/coller, renommage en ligne (f2), vue scindee (f3), filtre, proprietes, apercu, raccourcis clavier"
       },
       "dependances": [
         "gestionnaire_fichiers",
@@ -180,11 +180,21 @@
     {
       "nom": "copie de fichiers entre le PC et la cle",
       "etapes": [
-        "gestionnaire deux panneaux : hote a gauche, volume monarque a droite",
-        "selection d'un fichier ou dossier, bouton copier vers la cle ou vers le PC",
+        "gestionnaire style dolphin : navigation libre PC et cle, vue scindee optionnelle (f3)",
+        "couper/copier (ctrl+x / ctrl+c) puis coller (ctrl+v) ou menu contextuel",
         "copie en flux bloc par bloc, sans charger le fichier en memoire (taille illimitee)",
-        "hote->volume : lecture directe du fichier hote ; volume->hote : ecriture directe",
-        "chiffrement immediat des blocs ecrits sur la cle"
+        "quatre sens geres : hote->hote, volume->volume, hote->volume, volume->hote",
+        "chiffrement immediat des blocs ecrits sur la cle, couper supprime la source apres succes"
+      ]
+    },
+    {
+      "nom": "navigation dans le gestionnaire",
+      "etapes": [
+        "panneau lateral : emplacements xdg du pc + peripherique monarque avec jauge d'espace",
+        "barre d'outils : historique precedent/suivant/parent, fil d'ariane cliquable, filtre",
+        "vues details (colonnes triables nom/taille/date), icones, compact",
+        "double clic : dossier -> navigation, fichier hote -> application par defaut (xdg-open), fichier volume -> apercu dechiffre en memoire uniquement",
+        "raccourcis : f2 renommer, f3 scinder, f5 actualiser, suppr supprimer (confirmation), alt+fleches historique"
       ]
     },
     {

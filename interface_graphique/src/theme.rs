@@ -86,6 +86,35 @@ pub fn adoucir(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
+// couleurs breeze (kde) pour le gestionnaire de fichiers
+pub const BREEZE_FOND: Color32 = Color32::from_rgb(0x1b, 0x1e, 0x20);
+pub const BREEZE_PANNEAU: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x32);
+pub const BREEZE_CARTE: Color32 = Color32::from_rgb(0x31, 0x36, 0x3b);
+pub const BREEZE_BLEU: Color32 = Color32::from_rgb(0x3d, 0xae, 0xe9);
+pub const BREEZE_SELECTION: Color32 = Color32::from_rgb(0x2d, 0x5c, 0x76);
+
+// conversion d'un horodatage unix en date lisible
+pub fn horodatage_texte(secondes: u64) -> String {
+    if secondes == 0 {
+        return String::new();
+    }
+    // algorithme des jours civils (howard hinnant)
+    let jours = (secondes / 86_400) as i64;
+    let reste = secondes % 86_400;
+    let (heure, minute) = ((reste / 3600) as u32, ((reste % 3600) / 60) as u32);
+    let z = jours + 719_468;
+    let ere = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let jour_ere = (z - ere * 146_097) as u64;
+    let annee_ere = (jour_ere - jour_ere / 1460 + jour_ere / 36_524 - jour_ere / 146_096) / 365;
+    let annee = annee_ere as i64 + ere * 400;
+    let jour_annee = jour_ere - (365 * annee_ere + annee_ere / 4 - annee_ere / 100);
+    let mp = (5 * jour_annee + 2) / 153;
+    let jour = (jour_annee - (153 * mp + 2) / 5 + 1) as u32;
+    let mois = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let annee = if mois <= 2 { annee + 1 } else { annee };
+    format!("{jour:02}/{mois:02}/{annee} {heure:02}:{minute:02}")
+}
+
 // taille affichable
 pub fn taille_lisible(octets: u64) -> String {
     const GO: f64 = 1024.0 * 1024.0 * 1024.0;

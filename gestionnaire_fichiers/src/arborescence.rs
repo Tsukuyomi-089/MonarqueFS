@@ -11,6 +11,7 @@ pub struct EntreeArbre {
     pub nom: String,
     pub est_dossier: bool,
     pub taille: u64,
+    pub modifie: u64,
 }
 
 // operations communes aux deux sources de fichiers
@@ -44,6 +45,51 @@ pub trait Arborescence {
     fn lire_flux(&mut self, nom: &str, sortie: &mut dyn std::io::Write) -> ResultatFs<()>;
     // ecriture en flux d'un fichier dans le dossier courant
     fn ecrire_flux(&mut self, nom: &str, source: &mut dyn std::io::Read) -> ResultatFs<()>;
+}
+
+// emplacements standards de l'utilisateur (norme xdg), seuls les existants
+pub fn emplacements_hote() -> Vec<(String, String, PathBuf)> {
+    let Ok(personnel) = std::env::var("HOME") else {
+        return vec![("💻".into(), "Racine".into(), PathBuf::from("/"))];
+    };
+    let personnel = PathBuf::from(personnel);
+    // lecture des dossiers configures par l'utilisateur
+    let mut xdg = std::collections::HashMap::new();
+    if let Ok(config) = std::fs::read_to_string(personnel.join(".config/user-dirs.dirs")) {
+        for ligne in config.lines() {
+            let ligne = ligne.trim();
+            if let Some((cle, valeur)) = ligne.split_once('=') {
+                let valeur = valeur
+                    .trim_matches('"')
+                    .replace("$HOME", &personnel.display().to_string());
+                xdg.insert(cle.trim().to_string(), PathBuf::from(valeur));
+            }
+        }
+    }
+    let mut emplacements = vec![(
+        "🏠".to_string(),
+        "Dossier personnel".to_string(),
+        personnel.clone(),
+    )];
+    let standards = [
+        ("🖥", "Bureau", "XDG_DESKTOP_DIR", "Bureau"),
+        ("📄", "Documents", "XDG_DOCUMENTS_DIR", "Documents"),
+        ("⬇", "Téléchargements", "XDG_DOWNLOAD_DIR", "Téléchargements"),
+        ("🖼", "Images", "XDG_PICTURES_DIR", "Images"),
+        ("🎵", "Musique", "XDG_MUSIC_DIR", "Musique"),
+        ("🎬", "Vidéos", "XDG_VIDEOS_DIR", "Vidéos"),
+    ];
+    for (icone, nom, cle, repli) in standards {
+        let chemin = xdg
+            .get(cle)
+            .cloned()
+            .unwrap_or_else(|| personnel.join(repli));
+        if chemin.is_dir() && chemin != personnel {
+            emplacements.push((icone.to_string(), nom.to_string(), chemin));
+        }
+    }
+    emplacements.push(("💻".into(), "Racine".into(), PathBuf::from("/")));
+    emplacements
 }
 
 // tri commun : dossiers avant fichiers, puis par nom
@@ -92,10 +138,18 @@ impl Arborescence for ArbreHote {
             let meta = entree.metadata();
             let est_dossier = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
             let taille = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let modifie = meta
+                .as_ref()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             entrees.push(EntreeArbre {
                 nom,
                 est_dossier,
                 taille,
+                modifie,
             });
         }
         trier(&mut entrees);
@@ -223,6 +277,7 @@ impl Arborescence for ArbreVolume {
                 nom: e.nom,
                 est_dossier: e.type_noeud == TypeNoeud::Dossier,
                 taille: e.taille,
+                modifie: e.modifie,
             })
             .collect();
         trier(&mut entrees);
